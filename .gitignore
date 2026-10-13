@@ -1,0 +1,22 @@
+# Dependências instaladas localmente
+node_modules/
+
+# Arquivos gerados pelo Vite
+dist/
+.vite/
+
+# Relatórios e arquivos temporários
+tmp/
+coverage/
+*.log
+
+# Variáveis locais e credenciais
+.env
+.env.*
+!.env.example
+
+# Arquivos do sistema e editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
