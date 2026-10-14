@@ -83,7 +83,7 @@ function App() {
 
   return <div className="app-shell">
     <header className="topbar">
-      <a className="brand" href="#top" aria-label="Início"><span className="brand-mark"><img src="/seatec-logo.png" alt="SEATEC" /></span><span>gráfica<span className="brand-light">fluxo</span></span></a>
+      <a className="brand" href="#top" aria-label="Início"><span className="brand-mark"><img src={`${import.meta.env.BASE_URL}seatec-logo.png`} alt="SEATEC" /></span><span>gráfica<span className="brand-light">fluxo</span></span></a>
       <div className="topbar-right"><span className="session-label"><i /> {allDone ? 'Entrevista concluída' : 'Entrevista em andamento'}</span><button className="text-button" onClick={reset}><RotateCcw size={15}/> Reiniciar</button></div>
     </header>
 
