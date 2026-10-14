@@ -26,9 +26,11 @@ test('both exports generate valid, small PDFs without a browser or network', () 
     assert.match(text, /13\/10\/2026/);
     assert.ok(doc.output('arraybuffer').byteLength < 100000);
     if (mode === 'flow') {
-      assert.equal(doc.getNumberOfPages(), 1);
+      assert.equal(doc.getNumberOfPages(), 3);
       assert.ok(doc.internal.pageSize.getWidth() > doc.internal.pageSize.getHeight());
       assert.equal((text.match(/Resposta registrada/g) || []).length, 9);
+      const fontSizes = [...text.matchAll(/([\d.]+) Tf/g)].map(match => Number(match[1]));
+      assert.ok(fontSizes.length > 0 && fontSizes.every(size => size >= 10), 'Flow text must stay at least 10 pt');
     } else {
       assert.match(text, /Resposta: Sim/);
       assert.match(text, /Resposta: Não/);
@@ -37,31 +39,57 @@ test('both exports generate valid, small PDFs without a browser or network', () 
   }
 });
 
-test('long notes paginate and retain their final text in both exports', () => {
+test('long notes paginate only the interview and never enter the flow PDF', () => {
   const longAnswers = { ...answers, 0: { value: 'sim', note: `${'Observação com acentos: aprovação e produção. '.repeat(600)}FIM_DA_OBSERVACAO` } };
-  for (const generate of [createInterviewPdf, createFlowPdf]) {
-    const doc = generate(meta, questions, longAnswers);
-    assert.ok(doc.getNumberOfPages() > 1);
-    assert.match(content(doc), /FIM_DA_OBSERVACAO/);
-  }
+  const interview = createInterviewPdf(meta, questions, longAnswers);
+  assert.ok(interview.getNumberOfPages() > 1);
+  assert.match(content(interview), /FIM_DA_OBSERVACAO/);
+  const flow = createFlowPdf(meta, questions, longAnswers);
+  assert.equal(flow.getNumberOfPages(), 3);
+  assert.doesNotMatch(content(flow), /FIM_DA_OBSERVACAO|DETALHES E OBSERVA/);
+  assert.equal(content(flow), content(createFlowPdf(meta, questions, answers)));
 });
 
 test('partial interview highlights only recorded responses', () => {
   const doc = createFlowPdf(meta, questions, { 2: answers[2] });
   assert.equal((content(doc).match(/Resposta registrada/g) || []).length, 1);
-  assert.equal(doc.getNumberOfPages(), 1);
+  assert.equal(doc.getNumberOfPages(), 3);
 });
 
-test('custom questions paginate the diagram and preserve full question and note text', () => {
+test('custom questions paginate the diagram while notes stay in the interview', () => {
   const custom = Array.from({ length: 12 }, (_, i) => ({ id: `custom-${i}`, type: 'binary', area: 'Revisão', text: `A gráfica registra a etapa adicional de revisão ${i + 1}?`, yes: 'Etapa registrada', no: 'Etapa não registrada' }));
   const allQuestions = [...questions, ...custom];
   const stableAnswers = Object.fromEntries(allQuestions.map(q => [q.id, { value: 'sim', note: q.id === 'custom-11' ? 'NOTA_DA_ULTIMA_PERGUNTA' : '' }]));
   const flow = createFlowPdf(meta, allQuestions, stableAnswers);
   const text = content(flow);
-  assert.ok(flow.getNumberOfPages() >= 4);
+  assert.equal(flow.getNumberOfPages(), 7);
   assert.equal((text.match(/Resposta registrada/g) || []).length, 21);
-  assert.match(text, /Perguntas 19 a 21 de 21/);
-  assert.match(text, /NOTA_DA_ULTIMA_PERGUNTA/);
+  assert.match(text, /Perguntas 19 a 21/);
+  assert.doesNotMatch(text, /NOTA_DA_ULTIMA_PERGUNTA/);
   const interview = createInterviewPdf(meta, allQuestions, stableAnswers);
   assert.match(content(interview), /NOTA_DA_ULTIMA_PERGUNTA/);
+});
+
+test('date-only metadata shares the first diagram page without a cover or summary', () => {
+  const doc = createFlowPdf({ date: meta.date }, questions, answers);
+  assert.equal(doc.getNumberOfPages(), 3);
+  const text = content(doc);
+  assert.match(text, /13\/10\/2026/);
+  assert.match(text, /Perguntas 1 a 3/);
+  assert.match(text, /Perguntas 7 a 9/);
+  assert.doesNotMatch(text, /DADOS DA ENTREVISTA|DETALHES E OBSERVA/);
+});
+
+test('long custom node labels remain complete without shrinking text or adding a summary', () => {
+  const custom = {
+    id: 'custom-long', area: 'Revisão de arquivos e acabamento',
+    text: 'A gráfica registra a revisão dos arquivos e o acabamento dos impressos? '.repeat(4) + 'FIM_PERGUNTA',
+    yes: 'A gráfica registra os arquivos revisados e as etapas de acabamento. FIM_SIM',
+    no: 'A gráfica acompanha a revisão e o acabamento fora do sistema. FIM_NAO',
+  };
+  const text = content(createFlowPdf(meta, [...questions, custom], {}));
+  for (const marker of ['FIM_PERGUNTA', 'FIM_SIM', 'FIM_NAO']) assert.ok(text.includes(marker));
+  const fontSizes = [...text.matchAll(/([\d.]+) Tf/g)].map(match => Number(match[1]));
+  assert.ok(fontSizes.every(size => size >= 10));
+  assert.doesNotMatch(text, /consulte os detalhes|DETALHES E OBSERVA/);
 });

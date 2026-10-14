@@ -9,7 +9,8 @@ const assert = require('assert/strict');
     if (/^(entrevista|fluxograma)-grafica-.*\.(pdf|crdownload)$/.test(name)) fs.unlinkSync(path.join(output, name));
   }
   const tabs = await (await fetch('http://127.0.0.1:9236/json', { signal: AbortSignal.timeout(5000) })).json();
-  const target = tabs.find(tab => tab.type === 'page');
+  const target = tabs.find(tab => tab.type === 'page' && tab.url === 'about:blank')
+    || tabs.find(tab => tab.type === 'page' && tab.url.startsWith('http://127.0.0.1:5188/'));
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
   let id = 0;
@@ -45,6 +46,11 @@ const assert = require('assert/strict');
     }
     throw new Error(`Condition not satisfied: ${expression}`);
   }
+  async function reload() {
+    const previousOrigin = await run('performance.timeOrigin');
+    await call('Page.reload');
+    await waitFor(`performance.timeOrigin !== ${previousOrigin}`);
+  }
   async function viewport(width) {
     await call('Emulation.setDeviceMetricsOverride', { width, height: 950, deviceScaleFactor: 1, mobile: width < 800 });
     await pause(100);
@@ -64,7 +70,7 @@ const assert = require('assert/strict');
   await call('Page.navigate', { url: 'http://127.0.0.1:5188/' });
   await waitFor('Boolean(document.querySelector(".question-bank"))');
   await run('localStorage.removeItem("graficafluxo-session-v1")');
-  await call('Page.reload');
+  await reload();
   await waitFor('Boolean(document.querySelector(".question-bank"))');
   for (const width of [320, 375, 390, 768, 1440]) await viewport(width);
   await screenshot('desktop.png');
@@ -80,7 +86,7 @@ const assert = require('assert/strict');
   await screenshot('mobile-question-form.png');
   await run('document.querySelector(".question-form").requestSubmit()');
   await waitFor('document.querySelectorAll(".custom-question-item").length===1');
-  await call('Page.reload');
+  await reload();
   await waitFor('document.querySelector(".bank-heading p")?.textContent.includes("10 perguntas")');
   console.log('Cadastro e persistência: OK');
   for (let i = 0; i < 10; i++) {
@@ -101,6 +107,7 @@ const assert = require('assert/strict');
   await viewport(375);
   await run('document.querySelector(".done-card").scrollIntoView({block:"start"})');
   await screenshot('mobile-completed.png');
+  assert.equal(await run('document.querySelectorAll(".done-actions button").length'), 2);
   for (const [selector, prefix] of [['.done-actions .primary-button', 'entrevista-'], ['.done-actions .secondary-button', 'fluxograma-']]) {
     await run(`document.querySelector(${JSON.stringify(selector)}).click()`);
     await waitFor('!document.querySelector("button[aria-busy=true]")');
@@ -111,7 +118,7 @@ const assert = require('assert/strict');
     assert.equal(fs.readFileSync(path.join(output, filename)).subarray(0, 5).toString(), '%PDF-');
   }
   console.log('Entrevista com 10 perguntas, observação final e downloads: OK');
-  await call('Page.reload');
+  await reload();
   await waitFor('Boolean(document.querySelector(".done-card"))');
   await run('document.querySelector(".bank-actions .primary-button").click()');
   await waitFor('Boolean(document.querySelector(".question-form"))');
