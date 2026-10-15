@@ -11,8 +11,9 @@ function content(doc) {
   const bytes = Buffer.from(doc.output('arraybuffer'));
   assert.equal(bytes.subarray(0, 5).toString(), '%PDF-');
   const source = bytes.toString('latin1');
-  return [...source.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)].map(match => {
-    const data = Buffer.from(match[1], 'latin1');
+  return [...source.matchAll(/\/Length (\d+)[\s\S]*?stream\r?\n/g)].map(match => {
+    const start = match.index + match[0].length;
+    const data = bytes.subarray(start, start + Number(match[1]));
     try { return inflateSync(data).toString('latin1'); } catch { return data.toString('latin1'); }
   }).join('\n');
 }
@@ -50,10 +51,30 @@ test('long notes paginate only the interview and never enter the flow PDF', () =
   assert.equal(content(flow), content(createFlowPdf(meta, questions, answers)));
 });
 
-test('partial interview highlights only recorded responses', () => {
+test('partial interview includes only recorded questions with their original numbering', () => {
   const doc = createFlowPdf(meta, questions, { 2: answers[2] });
   assert.equal((content(doc).match(/Resposta registrada/g) || []).length, 1);
-  assert.equal(doc.getNumberOfPages(), 3);
+  assert.equal(doc.getNumberOfPages(), 1);
+  assert.match(content(doc), /Perguntas 3 a 3/);
+  assert.doesNotMatch(content(doc), /Perguntas 1 a|Continua na/);
+});
+
+test('early export stops at the last recorded answer and paginates only those questions', () => {
+  for (const count of [1, 3, 4, 8]) {
+    const recorded = Object.fromEntries(questions.slice(0, count).map(q => [q.id, { value: 'sim' }]));
+    const doc = createFlowPdf(meta, questions, recorded);
+    const expected = createFlowPdf(meta, questions.slice(0, count), recorded);
+    assert.equal(content(doc), content(expected));
+    assert.equal(doc.getNumberOfPages(), Math.ceil(count / 3));
+    assert.equal((content(doc).match(/Resposta registrada/g) || []).length, count);
+    assert.match(content(doc), /Fim da entrevista/);
+  }
+});
+
+test('export before the first answer contains no question nodes', () => {
+  const text = content(createFlowPdf(meta, questions, {}));
+  assert.doesNotMatch(text, /Perguntas |Resposta registrada|Continua na/);
+  assert.match(text, /Fim da entrevista/);
 });
 
 test('custom questions paginate the diagram while notes stay in the interview', () => {
@@ -87,7 +108,7 @@ test('long custom node labels remain complete without shrinking text or adding a
     yes: 'A gráfica registra os arquivos revisados e as etapas de acabamento. FIM_SIM',
     no: 'A gráfica acompanha a revisão e o acabamento fora do sistema. FIM_NAO',
   };
-  const text = content(createFlowPdf(meta, [...questions, custom], {}));
+  const text = content(createFlowPdf(meta, [...questions, custom], { ...answers, [custom.id]: { value: 'sim' } }));
   for (const marker of ['FIM_PERGUNTA', 'FIM_SIM', 'FIM_NAO']) assert.ok(text.includes(marker));
   const fontSizes = [...text.matchAll(/([\d.]+) Tf/g)].map(match => Number(match[1]));
   assert.ok(fontSizes.every(size => size >= 10));

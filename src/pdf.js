@@ -122,6 +122,7 @@ export function createFlowPdf(meta, questions, answers) {
   const pages = [[]];
   let used = 0;
   questions.forEach((q, index) => {
+    if (!answerFor(answers, q, index)) return;
     const item = layout(q, index);
     const page = pages.at(-1);
     if (page.length && (page.length === 3 || used + 6 + item.h > 190 - startY)) {
